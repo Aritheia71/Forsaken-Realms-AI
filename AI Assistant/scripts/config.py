@@ -6,6 +6,8 @@ Every script reads it automatically after that.
 
 import json
 from pathlib import Path
+import sys
+import shutil
 
 # Config file lives next to the scripts
 CONFIG_FILE = Path(__file__).parent / "config.json"
@@ -19,6 +21,27 @@ DEFAULTS = {
 }
 
 
+def find_python() -> str:
+    """
+    Return a usable python executable path. Preference order:
+    1) sys.executable (the running python)
+    2) the 'py' launcher on Windows
+    3) 'python3' or 'python' from PATH
+    Returns a string suitable for subprocess calls.
+    """
+    # Prefer the currently running interpreter
+    if sys.executable:
+        return sys.executable
+
+    # Then common launchers
+    for exe in ("py", "python3", "python"):
+        path = shutil.which(exe)
+        if path:
+            return path
+
+    # Fallback
+    return "python"
+    
 def load() -> dict:
     if CONFIG_FILE.exists():
         try:
