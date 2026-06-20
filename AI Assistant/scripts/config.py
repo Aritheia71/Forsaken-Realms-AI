@@ -24,18 +24,20 @@ DEFAULTS = {
 def find_python() -> str:
     """
     Return a usable python executable path. Preference order:
-    1) sys.executable (the running python)
-    2) the 'py' launcher on Windows
-    3) 'python3' or 'python' from PATH
+      1) sys.executable (if it exists)
+      2) the 'py' launcher on Windows
+      3) 'python3' or 'python' from PATH
     Returns a string suitable for subprocess calls.
     """
-    # Prefer the currently running interpreter
-    if sys.executable:
-        return sys.executable
+    # Prefer the currently running interpreter if the path exists
+    if getattr(sys, "executable", None):
+        exe = Path(sys.executable)
+        if exe.exists():
+            return str(exe)
 
     # Then common launchers
-    for exe in ("py", "python3", "python"):
-        path = shutil.which(exe)
+    for exe_name in ("py", "python3", "python"):
+        path = shutil.which(exe_name)
         if path:
             return path
 
