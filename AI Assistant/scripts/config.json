@@ -1,0 +1,7 @@
+{
+  "vault": "D:\\Obsidian Vault\\Forsaken Realms",
+  "app_dir": "",
+  "api_key": "forsaken-realms-local-key",
+  "ollama_model": "qwen3:8b",
+  "server_port": 5000
+}
