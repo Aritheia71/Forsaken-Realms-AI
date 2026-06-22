@@ -1,5 +1,5 @@
 """
-Forsaken Realms AI — Desktop App  v3.1
+Forsaken Realms AI — Desktop App  v4.0
 Run: py app.py
 Requires: py -m pip install PySide6 requests flask flask-cors watchdog sentence-transformers faiss-cpu
 """
@@ -7,31 +7,44 @@ Requires: py -m pip install PySide6 requests flask flask-cors watchdog sentence-
 import sys, os, random, subprocess, time
 import requests
 from pathlib import Path
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QTextEdit, QLineEdit, QPushButton, QStatusBar, QSplashScreen,
-    QSystemTrayIcon, QMenu, QDialog, QLabel, QDialogButtonBox,
-    QFileDialog, QWizard, QWizardPage, QProgressBar, QMessageBox
-)
-from PySide6.QtGui import (
-    QIcon, QPixmap, QKeySequence, QShortcut, QColor, QPalette, QFont
-)
-from PySide6.QtCore import QTimer, Qt, QThread, Signal
-import config
 
+# ── Resolve script directory ──────────────────────────────────────────────────
 if getattr(sys, "frozen", False):
     SCRIPT_DIR = Path(sys.executable).parent
 else:
     SCRIPT_DIR = Path(__file__).resolve().parent
 
 os.chdir(SCRIPT_DIR)
+sys.path.insert(0, str(SCRIPT_DIR))
 
-# Write startup log immediately
-_startup_log = SCRIPT_DIR / "startup_debug.log"
-with open(_startup_log, "w") as _f:
-    _f.write(f"SCRIPT_DIR: {SCRIPT_DIR}\n")
-    _f.write(f"frozen: {getattr(sys, 'frozen', False)}\n")
-    _f.write(f"executable: {sys.executable}\n")
+# ── Mode flags — handle --server and --watcher before importing Qt ────────────
+if "--server" in sys.argv:
+    import server
+    import config
+    cfg  = config.load()
+    port = cfg.get("server_port", 5000)
+    print(f"[mode] server starting on port {port}")
+    server.app.run(host="127.0.0.1", port=port, debug=False)
+    sys.exit(0)
+
+if "--watcher" in sys.argv:
+    import watcher
+    print("[mode] watcher starting")
+    watcher.run()
+    sys.exit(0)
+
+# ── GUI mode — only import Qt when running normally ───────────────────────────
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QTextEdit, QLineEdit, QPushButton, QStatusBar, QSplashScreen,
+    QSystemTrayIcon, QMenu, QLabel,
+    QFileDialog, QWizard, QWizardPage, QProgressBar
+)
+from PySide6.QtGui import (
+    QIcon, QPixmap, QKeySequence, QShortcut, QColor, QPalette, QFont
+)
+from PySide6.QtCore import QTimer, Qt, QThread, Signal
+import config
 
 
 def _icon(name):
@@ -356,10 +369,9 @@ class SetupWizard(QWizard):
 
     def initializePage(self, page_id):
         if self.page(page_id) is self.ingest_pg:
-            cfg                = config.load()
-            cfg["vault"]       = self.vault_pg.vault_path
-            cfg["app_dir"]     = self.dir_pg.app_path
-            cfg["python_path"] = config.find_python()
+            cfg            = config.load()
+            cfg["vault"]   = self.vault_pg.vault_path
+            cfg["app_dir"] = self.dir_pg.app_path
             config.save(cfg)
 
             self.ingest_pg.vault   = self.vault_pg.vault_path
@@ -391,70 +403,31 @@ class SetupWizard(QWizard):
 
 class ProcessManager:
     def __init__(self):
-        self._procs = []
+        self._procs    = []
+        self._logfiles = []
 
     def launch(self):
-        import socket
-        import traceback
+        exe    = sys.executable   # in frozen app this IS app.exe — correct!
+        NO_WIN = 0x08000000
 
-        log_path = SCRIPT_DIR / "launch_debug.log"
+        logs_dir = SCRIPT_DIR / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
-        try:
-            s = socket.socket()
+        for arg, name in [("--server", "server"), ("--watcher", "watcher")]:
+            logpath = logs_dir / f"{name}.log"
             try:
-                s.connect(("127.0.0.1", 5000))
-                s.close()
-                with open(log_path, "w") as f:
-                    f.write("Server already running\n")
-                return
-            except Exception:
-                pass
-
-            python = config.find_python()
-            NO_WIN = 0x08000000
-
-            with open(log_path, "w") as f:
-                f.write(f"Python: {python}\n")
-                f.write(f"SCRIPT_DIR: {SCRIPT_DIR}\n")
-
-            for script in ["server.py", "watcher.py"]:
-                path = SCRIPT_DIR / script
-                with open(log_path, "a") as f:
-                    f.write(f"Launching {script}: exists={path.exists()}\n")
-                if not path.exists():
-                    continue
-                try:
-                    proc = subprocess.Popen(
-                        [python, str(path)],
-                        creationflags=NO_WIN,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                    )
-                    self._procs.append(proc)
-                    with open(log_path, "a") as f:
-                        f.write(f"Started {script} pid={proc.pid}\n")
-
-                    # Wait 8 seconds and check if it's still alive
-                    time.sleep(8)
-                    if proc.poll() is not None:
-                        out, err = proc.communicate()
-                        with open(log_path, "a") as f:
-                            f.write(f"{script} DIED!\n")
-                            f.write(f"stdout: {out.decode('utf-8', errors='ignore')}\n")
-                            f.write(f"stderr: {err.decode('utf-8', errors='ignore')}\n")
-                    else:
-                        with open(log_path, "a") as f:
-                            f.write(f"{script} still running after 8s - OK\n")
-
-                except Exception as e:
-                    with open(log_path, "a") as f:
-                        f.write(f"Failed to start {script}: {e}\n")
-                        f.write(traceback.format_exc())
-
-        except Exception as e:
-            with open(log_path, "a") as f:
-                f.write(f"Launch error: {e}\n")
-                f.write(traceback.format_exc())
+                lf = open(logpath, "w", buffering=1, encoding="utf-8", errors="ignore")
+                self._logfiles.append(lf)
+                proc = subprocess.Popen(
+                    [exe, arg],
+                    creationflags=NO_WIN,
+                    stdout=lf,
+                    stderr=subprocess.STDOUT,
+                )
+                self._procs.append(proc)
+                print(f"[launcher] {name} started (pid {proc.pid}) → {logpath}")
+            except Exception as e:
+                print(f"[launcher] failed to start {name}: {e}")
 
     def stop(self):
         for proc in self._procs:
@@ -462,7 +435,13 @@ class ProcessManager:
                 proc.terminate()
             except Exception:
                 pass
+        for lf in self._logfiles:
+            try:
+                lf.close()
+            except Exception:
+                pass
         self._procs.clear()
+        self._logfiles.clear()
 
 
 # ── Main window ───────────────────────────────────────────────────────────────
@@ -571,7 +550,7 @@ class ForsakenRealmsAI(QMainWindow):
                 self._startup_timer.stop()
                 self._print(
                     "⚠  Server did not start after 60s.\n"
-                    "   Make sure Python is installed and server.py is in the scripts folder."
+                    "   Check logs folder next to app.exe for details."
                 )
                 self.status.showMessage("⚠ Server not responding")
             else:

@@ -1,6 +1,5 @@
 """
 Forsaken Realms AI — Vault File Watcher
-Watches your Obsidian vault and POSTs changed notes to the server.
 Started automatically by app.py — can also run standalone: py watcher.py
 """
 
@@ -31,6 +30,7 @@ HEADERS    = {"X-API-Key": API_KEY}
 class VaultHandler(FileSystemEventHandler):
     def on_modified(self, event):
         self._handle(event.src_path)
+
     def on_created(self, event):
         self._handle(event.src_path)
 
@@ -50,7 +50,7 @@ class VaultHandler(FileSystemEventHandler):
             print("[watcher] server not reachable")
 
 
-if __name__ == "__main__":
+def run():
     print(f"Watching: {VAULT}\n")
     observer = Observer()
     observer.schedule(VaultHandler(), str(VAULT), recursive=True)
@@ -61,3 +61,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
+
+
+if __name__ == "__main__":
+    run()
